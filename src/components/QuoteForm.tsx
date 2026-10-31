@@ -9,6 +9,7 @@ import {
 import { useSiteCompany } from "@/context/SiteSettings";
 import { Arrow } from "@/components/primitives";
 import { OfflineQueuedError, submitInquiry } from "@/lib/inquiries";
+import { isDemo } from "@/lib/repo";
 
 /**
  * Quote request form.
@@ -203,11 +204,19 @@ export function QuoteForm() {
       setValues(emptyValues);
       say(
         "ok",
-        <>
-          <strong>Request received.</strong> Thank you, {quote.name.split(" ")[0]}. Our dispatch team
-          has it now and will be in touch shortly. Need someone today? Call{" "}
-          <a href={company.phoneHref}>(747)&nbsp;370-4640</a>.
-        </>,
+        isDemo() ? (
+          <>
+            <strong>Demo request saved on this browser.</strong> Thank you, {quote.name.split(" ")[0]}.
+            Connect Supabase to send requests to the live admin dashboard. Need someone today? Call{" "}
+            <a href={company.phoneHref}>(747)&nbsp;370-4640</a>.
+          </>
+        ) : (
+          <>
+            <strong>Request received.</strong> Thank you, {quote.name.split(" ")[0]}. Our dispatch team
+            has it now and will be in touch shortly. Need someone today? Call{" "}
+            <a href={company.phoneHref}>(747)&nbsp;370-4640</a>.
+          </>
+        ),
       );
     } catch (error) {
       if (error instanceof OfflineQueuedError) {

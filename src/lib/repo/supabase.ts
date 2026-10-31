@@ -179,26 +179,40 @@ export function createSupabaseRepo(): Repo {
     },
 
     async createInquiry(input: NewInquiry) {
-      const { data, error } = await client
-        .from("inquiries")
-        .insert({
-          name: input.name,
-          company: input.company || null,
-          email: input.email,
-          phone: input.phone,
-          services: input.services,
-          site_type: input.siteType || null,
-          timing: input.timing || null,
-          location: input.location || null,
-          message: input.message || null,
-          source: "website",
-          submission_id: input.submissionId,
-          user_agent: typeof navigator !== "undefined" ? navigator.userAgent.slice(0, 300) : null,
-        })
-        .select("*, inquiry_notes(*)")
-        .single();
+      const { error } = await client.from("inquiries").insert({
+        name: input.name,
+        company: input.company || null,
+        email: input.email,
+        phone: input.phone,
+        services: input.services,
+        site_type: input.siteType || null,
+        timing: input.timing || null,
+        location: input.location || null,
+        message: input.message || null,
+        source: "website",
+        submission_id: input.submissionId,
+        user_agent: typeof navigator !== "undefined" ? navigator.userAgent.slice(0, 300) : null,
+      });
       if (error) throw new Error(error.message);
-      return mapInquiry(data);
+      const now = new Date().toISOString();
+      return {
+        id: input.submissionId,
+        name: input.name,
+        company: input.company || null,
+        email: input.email,
+        phone: input.phone,
+        services: input.services,
+        siteType: input.siteType || null,
+        timing: input.timing || null,
+        location: input.location || null,
+        message: input.message || null,
+        status: "new",
+        isRead: false,
+        source: "website",
+        createdAt: now,
+        updatedAt: now,
+        notes: [],
+      };
     },
 
     async updateInquiry(id, patch) {

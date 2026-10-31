@@ -9,7 +9,8 @@ import {
   type ReactNode,
 } from "react";
 import type { AdminUser, Inquiry, InquiryStats, NewInquiry } from "@/types/db";
-import { repo } from "@/lib/repo";
+import { isDemo, repo } from "@/lib/repo";
+import { showInquiryNotification } from "@/lib/notify";
 
 /* -------------------------------------------------------------------------- */
 /* toasts                                                                     */
@@ -125,6 +126,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     const unsubscribe = repo().subscribeInquiries((event) => {
       if (event.type === "insert") {
         setInquiries((list) => [event.inquiry, ...list.filter((i) => i.id !== event.inquiry.id)]);
+        if (!isDemo()) void showInquiryNotification(event.inquiry);
         push({
           tone: "info",
           title: `New request — ${event.inquiry.name}`,

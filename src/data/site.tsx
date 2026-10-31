@@ -17,10 +17,9 @@ export const company = {
   email: "info@edgewaysecurity.com",
   emailHref: "mailto:info@edgewaysecurity.com",
   serviceArea: "Serving all of California",
-  /** TODO: replace with the real street address */
   address: {
-    line1: "[Street Address]",
-    line2: "[City], CA [ZIP]",
+    line1: "20335 Ventura Blvd, Suite 425",
+    line2: "Woodland Hills, CA 91364",
   },
   tagline: ["Guards, cameras and vehicle patrol", "We got you covered."],
 } as const;
