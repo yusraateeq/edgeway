@@ -63,66 +63,75 @@ Deno.serve(async (req) => {
     .select("id, endpoint, p256dh, auth, device");
   if (error) return json({ error: error.message }, 500);
 
-  if (!subscriptions?.length) {
+  const services = (record.services ?? []).join(", ") || "Not sure yet";
+
+  // ── Web-push fan-out (skipped when no devices are registered) ────────────
+  let pushSent = 0;
+  let pushDead = 0;
+
+  if (subscriptions?.length) {
+    webpush.setVapidDetails(
+      Deno.env.get("VAPID_SUBJECT") ?? "mailto:info@edgewaysecurity.com",
+      Deno.env.get("VAPID_PUBLIC_KEY")!,
+      Deno.env.get("VAPID_PRIVATE_KEY")!,
+    );
+
+    const notification = {
+      title: `New quote request — ${record.name}`,
+      body: [record.site_type, record.location, record.phone].filter(Boolean).join(" · ") +
+        `\n${services}`,
+      url: `/admin/inquiries/${record.id}`,
+      tag: `inquiry-${record.id}`,
+    };
+
+    const results = await Promise.allSettled(
+      subscriptions.map((sub) =>
+        webpush.sendNotification(
+          {
+            endpoint: sub.endpoint,
+            keys: { p256dh: sub.p256dh, auth: sub.auth },
+          },
+          JSON.stringify(notification),
+          { TTL: 3600, urgency: "high" },
+        ),
+      ),
+    );
+
+    const dead: number[] = [];
+    const ok: number[] = [];
+
+    results.forEach((result, index) => {
+      if (result.status === "fulfilled") {
+        ok.push(subscriptions[index].id);
+        return;
+      }
+      const statusCode = (result.reason as { statusCode?: number })?.statusCode;
+      if (statusCode === 404 || statusCode === 410) dead.push(subscriptions[index].id);
+    });
+
+    if (dead.length) {
+      await supabase.from("push_subscriptions").delete().in("id", dead);
+    }
+    if (ok.length) {
+      await supabase
+        .from("push_subscriptions")
+        .update({ last_ok_at: new Date().toISOString() })
+        .in("id", ok);
+    }
+
+    pushSent = ok.length;
+    pushDead = dead.length;
+  } else {
     await supabase.from("audit_log").insert({
       action: "push.skipped",
       entity: `inquiries:${record.id}`,
       meta: { reason: "no devices" },
     });
-    return json({ sent: 0, reason: "no devices" });
   }
 
-  webpush.setVapidDetails(
-    Deno.env.get("VAPID_SUBJECT") ?? "mailto:info@edgewaysecurity.com",
-    Deno.env.get("VAPID_PUBLIC_KEY")!,
-    Deno.env.get("VAPID_PRIVATE_KEY")!,
-  );
-
-  const services = (record.services ?? []).join(", ") || "Not sure yet";
-  const notification = {
-    title: `New quote request — ${record.name}`,
-    body: [record.site_type, record.location, record.phone].filter(Boolean).join(" · ") +
-      `\n${services}`,
-    url: `/admin/inquiries/${record.id}`,
-    tag: `inquiry-${record.id}`,
-  };
-
-  const results = await Promise.allSettled(
-    subscriptions.map((sub) =>
-      webpush.sendNotification(
-        {
-          endpoint: sub.endpoint,
-          keys: { p256dh: sub.p256dh, auth: sub.auth },
-        },
-        JSON.stringify(notification),
-        { TTL: 3600, urgency: "high" },
-      ),
-    ),
-  );
-
-  const dead: number[] = [];
-  const ok: number[] = [];
-
-  results.forEach((result, index) => {
-    if (result.status === "fulfilled") {
-      ok.push(subscriptions[index].id);
-      return;
-    }
-    const statusCode = (result.reason as { statusCode?: number })?.statusCode;
-    if (statusCode === 404 || statusCode === 410) dead.push(subscriptions[index].id);
-  });
-
-  if (dead.length) {
-    await supabase.from("push_subscriptions").delete().in("id", dead);
-  }
-  if (ok.length) {
-    await supabase
-      .from("push_subscriptions")
-      .update({ last_ok_at: new Date().toISOString() })
-      .in("id", ok);
-  }
-
-  // Optional email copy — never blocks the push result.
+  // ── Email copy — always attempted, never blocks the push result ──────────
+  // Requires Edge Function secrets: RESEND_API_KEY and NOTIFY_EMAIL.
+  // Set them via: supabase secrets set RESEND_API_KEY=re_... NOTIFY_EMAIL=you@example.com
   const resendKey = Deno.env.get("RESEND_API_KEY");
   const notifyEmail = Deno.env.get("NOTIFY_EMAIL");
   if (resendKey && notifyEmail) {
@@ -155,8 +164,8 @@ Deno.serve(async (req) => {
   await supabase.from("audit_log").insert({
     action: "push.sent",
     entity: `inquiries:${record.id}`,
-    meta: { sent: ok.length, dead: dead.length },
+    meta: { sent: pushSent, dead: pushDead, emailSent: !!(resendKey && notifyEmail) },
   });
 
-  return json({ sent: ok.length, removed: dead.length, total: subscriptions.length });
+  return json({ sent: pushSent, removed: pushDead, total: subscriptions?.length ?? 0 });
 });
